@@ -1,0 +1,11 @@
+{
+    "name": "hosts proxy",
+    "title": "hosts proxy",
+    "version": "0.0.1",
+    "description": "hosts proxy",
+    "author": "Cenfun",
+    "devDependencies": {
+        "native-dns-packet": "*",
+        "log": "*"
+    }
+}
