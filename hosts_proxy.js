@@ -70,26 +70,6 @@ var getHosts = function() {
 
 };
 
-var getClentIp = function(req) {
-    var ip = "unknown";
-    if (!req) {
-        return ip;
-    }
-    ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    if (ip) {
-        return ip;
-    }
-
-    if (req.socket) {
-        ip = req.socket.remoteAddress;
-    }
-
-    if (!ip && req.connection.socket) {
-        ip = req.connection.socket.remoteAddress;
-    }
-    return ip;
-};
-
 var hosts = getHosts();
 
 var createAnswer = function(query, answer) {
@@ -105,7 +85,13 @@ var createAnswer = function(query, answer) {
     });
 
     var buf = new Buffer(4096);
-    var wrt = packet.write(buf, query);
+
+    var wrt;
+    try {
+        wrt = packet.write(buf, query);
+    } catch (e) {
+        return null;
+    }
     var res = buf.slice(0, wrt);
 
     return res;
@@ -136,8 +122,15 @@ server.on("listening", function() {
 });
 
 server.on('message', function(message, rinfo) {
+    var query;
+    try {
+        query = packet.parse(message);
+    } catch (e) {}
 
-    var query = packet.parse(message);
+    if (!query) {
+        addlog('Error message: ' + rinfo.address);
+        return;
+    }
 
     var question = query.question[0];
 
@@ -153,11 +146,12 @@ server.on('message', function(message, rinfo) {
             //console.log('Found from hosts: ', name, ip);
 
             var res = createAnswer(query, ip);
-            server.send(res, 0, res.length, rinfo.port, rinfo.address);
+            if (res) {
+                server.send(res, 0, res.length, rinfo.port, rinfo.address);
+                addlog(log + ip);
+                return;
+            }
 
-            addlog(log + ip);
-
-            return;
         }
     }
 
