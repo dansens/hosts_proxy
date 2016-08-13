@@ -14,9 +14,7 @@ var zero = function(v) {
     return v;
 };
 
-var addlog = function() {
-
-    //console.log.apply(null, arguments);
+var addlog = function(str) {
 
     if (!logFile) {
         var date = new Date();
@@ -27,7 +25,7 @@ var addlog = function() {
         logFile = new Log('info', fs.createWriteStream(filename));
     }
 
-    logFile.info.apply(logFile, arguments);
+    logFile.info(str + "\r");
 
 };
 
@@ -70,6 +68,26 @@ var getHosts = function() {
 
     return hosts;
 
+};
+
+var getClentIp = function(req) {
+    var ip = "unknown";
+    if (!req) {
+        return ip;
+    }
+    ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    if (ip) {
+        return ip;
+    }
+
+    if (req.socket) {
+        ip = req.socket.remoteAddress;
+    }
+
+    if (!ip && req.connection.socket) {
+        ip = req.connection.socket.remoteAddress;
+    }
+    return ip;
 };
 
 var hosts = getHosts();
@@ -126,14 +144,18 @@ server.on('message', function(message, rinfo) {
     var name = question.name;
     var type = question.type;
 
+    var log = "[" + rinfo.address + "," + rinfo.family + "," + rinfo.port + "," + rinfo.size + "] ";
+    log += "(" + type + ") " + name + ":";
+
     if (type === 1) {
-        addlog(name);
         var ip = hosts[name];
         if (ip) {
             //console.log('Found from hosts: ', name, ip);
 
             var res = createAnswer(query, ip);
             server.send(res, 0, res.length, rinfo.port, rinfo.address);
+
+            addlog(log + ip);
 
             return;
         }
@@ -150,17 +172,21 @@ server.on('message', function(message, rinfo) {
         var sock_bak = new NSQuery(message, rinfo, '8.8.8.8', function(response) {
             onResponse(response);
             sock_bak.close();
+
+            //addlog(log + "8.8.8.8");
         });
 
-    }, 350);
+    }, 500);
 
     var sock = new NSQuery(message, rinfo, '223.5.5.5', function(response) {
         clearTimeout(fallback);
         onResponse(response);
         sock.close();
+
+        //addlog(log + "223.5.5.5");
     });
 
 
 });
 
-server.bind(53, "127.0.0.1");
+server.bind(53);
