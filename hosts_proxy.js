@@ -138,7 +138,7 @@ server.on('message', function(message, rinfo) {
     var type = question.type;
 
     var log = "[" + rinfo.address + "," + rinfo.family + "," + rinfo.port + "," + rinfo.size + "] ";
-    log += "(" + type + ") " + name + ":";
+    log += "(" + type + ") " + name;
 
     if (type === 1) {
         var ip = hosts[name];
@@ -148,11 +148,12 @@ server.on('message', function(message, rinfo) {
             var res = createAnswer(query, ip);
             if (res) {
                 server.send(res, 0, res.length, rinfo.port, rinfo.address);
-                addlog(log + ip);
+                addlog(log + " " + ip + " from hosts");
                 return;
             }
 
         }
+
     }
 
     var onResponse = function(response) {
@@ -167,7 +168,7 @@ server.on('message', function(message, rinfo) {
             onResponse(response);
             sock_bak.close();
 
-            //addlog(log + "8.8.8.8");
+            addlog(log + " 8.8.8.8");
         });
 
     }, 500);
@@ -177,7 +178,7 @@ server.on('message', function(message, rinfo) {
         onResponse(response);
         sock.close();
 
-        //addlog(log + "223.5.5.5");
+        addlog(log + " 223.5.5.5");
     });
 
 
