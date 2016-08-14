@@ -1,187 +1,228 @@
-"use strict";
+(function() {
 
-var fs = require('fs');
-var dgram = require('dgram');
+    "use strict";
 
-var Log = require('log');
-var logFile;
+    var fs = require('fs');
+    var dgram = require('dgram');
+    var packet = require('native-dns-packet');
+    var Log = require('log');
 
-var zero = function(v) {
-    v = v + "";
-    if (v.length < 2) {
-        v = "0" + v;
-    }
-    return v;
-};
+    //first time require nslookup password to add client ip in allow list
+    //you can update this for security
+    //or empty for all ip
+    var passowrd = "kkk.com";
 
-var addlog = function(str) {
+    //==================================================================================================
+    var createLogFile = function() {
 
-    if (!logFile) {
+        var zero = function(v) {
+            v = v + "";
+            if (v.length < 2) {
+                v = "0" + v;
+            }
+            return v;
+        };
+
         var date = new Date();
-
-        var time = zero(date.getMonth() + 1) + zero(date.getDate()) + "_" + zero(date.getHours()) + zero(date.getMinutes());
-        var filename = './log/info_' + time + '.log';
-
-        logFile = new Log('info', fs.createWriteStream(filename));
-    }
-
-    logFile.info(str + "\r");
-
-};
-
-var packet = require('native-dns-packet');
-
-var getHosts = function() {
-    var fileData = fs.readFileSync("./etc/hosts", "utf-8");
-    if (!fileData) {
-        return {};
-    }
-
-    var trim = function(str) {
-        str = str + "";
-        return str.replace(/(^\s*)|(\s*$)/, "");
+        var yy = date.getFullYear().toString().substr(2);
+        var mm = zero(date.getMonth() + 1);
+        var dd = zero(date.getDate());
+        var hh = zero(date.getHours());
+        var MM = zero(date.getMinutes());
+        var time = yy + mm + dd + "_" + hh + MM;
+        var filename = './log/' + time + '.log';
+        var logFile = new Log('info', fs.createWriteStream(filename));
+        return logFile;
     };
 
-    var lineList = fileData.split(/\n+/);
+    var logFile;
+    var addlog = function(str) {
+        if (!logFile) {
+            logFile = createLogFile();
+        }
+        logFile.info(str + "\r");
+    };
 
-    if (!lineList || !lineList.length) {
-        return {};
-    }
+    //==================================================================================================
+    var getHosts = function() {
+        var fileData = fs.readFileSync("./etc/hosts", "utf-8");
+        if (!fileData) {
+            return {};
+        }
 
-    var filterHosts = function(lineList) {
-        var hosts = {};
-        var reg = /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\s+.+/;
+        var trim = function(str) {
+            str = str + "";
+            return str.replace(/(^\s*)|(\s*$)/, "");
+        };
 
-        for (var i = 0, l = lineList.length; i < l; i++) {
-            var item = trim(lineList[i]);
-            if (item && item.indexOf("#") === -1 && reg.test(item)) {
-                var arr = item.split(/\s+/);
-                if (arr[0] && arr[1]) {
-                    hosts[arr[1]] = arr[0];
+        var lineList = fileData.split(/\n+/);
+
+        if (!lineList || !lineList.length) {
+            return {};
+        }
+
+        var filterHosts = function(lineList) {
+            var hosts = {};
+            var reg = /[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\s+.+/;
+
+            for (var i = 0, l = lineList.length; i < l; i++) {
+                var item = trim(lineList[i]);
+                if (item && item.indexOf("#") === -1 && reg.test(item)) {
+                    var arr = item.split(/\s+/);
+                    if (arr[0] && arr[1]) {
+                        hosts[arr[1]] = arr[0];
+                    }
                 }
             }
-        }
+            return hosts;
+        };
+
+        var hosts = filterHosts(lineList);
+
         return hosts;
+
     };
 
-    var hosts = filterHosts(lineList);
+    var hosts = getHosts();
 
-    return hosts;
+    //==================================================================================================
+    var createAnswer = function(query, answer) {
+        query.header.qr = 1;
+        query.header.rd = 1;
+        query.header.ra = 1;
+        query.answer.push({
+            name: query.question[0].name,
+            type: 1,
+            class: 1,
+            ttl: 30,
+            address: answer
+        });
 
-};
+        var buf = new Buffer(4096);
 
-var hosts = getHosts();
+        var wrt;
+        try {
+            wrt = packet.write(buf, query);
+        } catch (e) {
+            return null;
+        }
+        var res = buf.slice(0, wrt);
 
-var createAnswer = function(query, answer) {
-    query.header.qr = 1;
-    query.header.rd = 1;
-    query.header.ra = 1;
-    query.answer.push({
-        name: query.question[0].name,
-        type: 1,
-        class: 1,
-        ttl: 30,
-        address: answer
-    });
+        return res;
+    };
 
-    var buf = new Buffer(4096);
+    var NSQuery = function(message, rinfo, nameserver, onMessage) {
+        //console.log("Query from server:", nameserver);
 
-    var wrt;
-    try {
-        wrt = packet.write(buf, query);
-    } catch (e) {
-        return null;
-    }
-    var res = buf.slice(0, wrt);
+        var sock = dgram.createSocket('udp4');
 
-    return res;
-};
+        sock.on('error', function(err) {
+            addlog('Socket Error:' + err);
+        });
+        sock.on('message', onMessage);
 
-var NSQuery = function(message, rinfo, nameserver, onMessage) {
-    //console.log("Query from server:", nameserver);
+        sock.send(message, 0, message.length, 53, nameserver);
 
-    var sock = dgram.createSocket('udp4');
+        return sock;
+    };
 
-    sock.on('error', function(err) {
-        addlog('Socket Error:' + err);
-    });
-    sock.on('message', onMessage);
 
-    sock.send(message, 0, message.length, 53, nameserver);
+    //==================================================================================================
+    var allowIpList = {};
 
-    return sock;
-};
+    var onMessage = function(server, message, rinfo) {
 
-var server = dgram.createSocket('udp4');
-server.on('error', function(err) {
-    addlog('Server Error: ' + err);
-});
+        if (!rinfo || !rinfo.address) {
+            return;
+        }
 
-server.on("listening", function() {
-    console.log("Server listening " + server.address().address);
-});
+        var clientIp = rinfo.address;
 
-server.on('message', function(message, rinfo) {
-    var query;
-    try {
-        query = packet.parse(message);
-    } catch (e) {}
 
-    if (!query) {
-        addlog('Error message: ' + rinfo.address);
-        return;
-    }
+        if (!message) {
+            return;
+        }
+        var query;
+        try {
+            query = packet.parse(message);
+        } catch (e) {}
 
-    var question = query.question[0];
+        if (!query) {
+            addlog('Error message: ' + clientIp);
+            return;
+        }
 
-    var name = question.name;
-    var type = question.type;
+        var question = query.question[0];
 
-    var log = "[" + rinfo.address + "," + rinfo.family + "," + rinfo.port + "," + rinfo.size + "] ";
-    log += "(" + type + ") " + name;
+        var name = question.name;
+        var type = question.type;
 
-    if (type === 1) {
-        var ip = hosts[name];
-        if (ip) {
-            //console.log('Found from hosts: ', name, ip);
+        var log = "[" + clientIp + "," + rinfo.family + "," + rinfo.port + "," + rinfo.size + "] ";
+        log += "(" + type + ") " + name;
 
-            var res = createAnswer(query, ip);
-            if (res) {
-                server.send(res, 0, res.length, rinfo.port, rinfo.address);
-                addlog(log + " " + ip + " from hosts");
-                return;
+        //==================================
+
+        //passowrd
+        if (passowrd && !allowIpList[clientIp]) {
+            if (name === passowrd) {
+                allowIpList[clientIp] = true;
+                console.log("allow " + clientIp);
+                addlog(log + " allow");
+            }
+            return;
+        }
+
+        //==================================
+        //from hosts
+        if (type === 1) {
+            var ip = hosts[name];
+            if (ip) {
+                //console.log('Found from hosts: ', name, ip);
+
+                var res = createAnswer(query, ip);
+                if (res) {
+                    server.send(res, 0, res.length, rinfo.port, clientIp);
+                    addlog(log + " " + ip + " from hosts");
+                    return;
+                }
+
             }
 
         }
 
-    }
+        var fallback = setTimeout(function() {
+            var sock_bak = new NSQuery(message, rinfo, '8.8.8.8', function(response) {
+                server.send(response, 0, response.length, rinfo.port, clientIp);
+                sock_bak.close();
 
-    var onResponse = function(response) {
-        //var res = packet.parse(response);
-        //console.log(res.answer);
-        server.send(response, 0, response.length, rinfo.port, rinfo.address);
-    };
+                addlog(log + " 8.8.8.8");
+            });
+        }, 500);
 
-    var fallback = setTimeout(function() {
+        var sock = new NSQuery(message, rinfo, '223.5.5.5', function(response) {
+            clearTimeout(fallback);
+            server.send(response, 0, response.length, rinfo.port, clientIp);
+            sock.close();
 
-        var sock_bak = new NSQuery(message, rinfo, '8.8.8.8', function(response) {
-            onResponse(response);
-            sock_bak.close();
-
-            addlog(log + " 8.8.8.8");
+            addlog(log + " 223.5.5.5");
         });
 
-    }, 500);
+    };
 
-    var sock = new NSQuery(message, rinfo, '223.5.5.5', function(response) {
-        clearTimeout(fallback);
-        onResponse(response);
-        sock.close();
 
-        addlog(log + " 223.5.5.5");
+
+    //==================================================================================================
+    var server = dgram.createSocket('udp4');
+    server.on('error', function(err) {
+        addlog('Server Error: ' + err);
     });
+    server.on("listening", function() {
+        console.log("Server listening " + server.address().address);
+    });
+    server.on('message', function(message, rinfo) {
+        return onMessage(server, message, rinfo);
+    });
+    server.bind(53);
 
 
-});
-
-server.bind(53);
+})();
