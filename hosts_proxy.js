@@ -158,7 +158,6 @@
         var type = question.type;
 
         var log = "[" + clientIp + "," + rinfo.family + "," + rinfo.port + "," + rinfo.size + "] ";
-        log += "(" + type + ") " + name;
 
         //==================================
 
@@ -171,6 +170,8 @@
             }
             return;
         }
+
+        log += "(" + type + ") " + name;
 
         //==================================
         //from hosts
